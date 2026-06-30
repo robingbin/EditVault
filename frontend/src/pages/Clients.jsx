@@ -6,6 +6,15 @@ import Avatar from "../components/Avatar";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 
+function Input({ label, value, onChange, type = 'text', required }) {
+  return (
+    <label className="block">
+      <span className="block text-[12px] text-[#8aa0a1] mb-1.5">{label}</span>
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required}
+        className="w-full px-3 py-2 rounded-lg bg-[#0a1112] border border-[#243334] text-[#e6f7f6] placeholder-[#3f5152] outline-none focus:border-[#2dd4bf] focus:ring-2 focus:ring-[#2dd4bf]/20 transition-colors" />
+    </label>
+  );
+}
 function ClientForm({ open, onOpenChange, initial, onSaved }) {
   const isEdit = !!initial;
   const [name, setName] = useState(initial?.name || "");
@@ -13,32 +22,20 @@ function ClientForm({ open, onOpenChange, initial, onSaved }) {
   const [phone, setPhone] = useState(initial?.phone || "");
   const [monthly, setMonthly] = useState(initial?.monthly_fee ?? 0);
   const [submitting, setSubmitting] = useState(false);
-
   useEffect(() => {
     if (open) {
-      setName(initial?.name || "");
-      setEmail(initial?.email || "");
-      setPhone(initial?.phone || "");
-      setMonthly(initial?.monthly_fee ?? 0);
+      setName(initial?.name || ""); setEmail(initial?.email || ""); setPhone(initial?.phone || ""); setMonthly(initial?.monthly_fee ?? 0);
     }
   }, [open, initial]);
-
   const submit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
+    e.preventDefault(); setSubmitting(true);
     try {
-      const payload = { name, email, phone, monthly_fee: Number(monthly) || 0 };
+      const payload = { name, email: email.toLowerCase(), phone, monthly_fee: Number(monthly) || 0 };
       const saved = isEdit ? await updateClient(initial.id, payload) : await createClient(payload);
-      toast.success(isEdit ? 'Client updated' : 'Client added');
-      onSaved(saved);
-      onOpenChange(false);
-    } catch (err) {
-      toast.error(err.message || 'Failed to save');
-    } finally {
-      setSubmitting(false);
-    }
+      toast.success(isEdit ? 'Client updated' : 'Client added'); onSaved(saved); onOpenChange(false);
+    } catch (err) { toast.error(err.message || 'Failed to save'); }
+    setSubmitting(false);
   };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#0d1516] border border-[#142021] text-[#e6f7f6]">
@@ -59,34 +56,22 @@ function ClientForm({ open, onOpenChange, initial, onSaved }) {
     </Dialog>
   );
 }
-function Input({ label, value, onChange, type = 'text', required }) {
-  return (
-    <label className="block">
-      <span className="block text-[12px] text-[#8aa0a1] mb-1.5">{label}</span>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required}
-        className="w-full px-3 py-2 rounded-lg bg-[#0a1112] border border-[#243334] text-[#e6f7f6] placeholder-[#3f5152] outline-none focus:border-[#2dd4bf] focus:ring-2 focus:ring-[#2dd4bf]/20 transition-colors" />
-    </label>
-  );
-}
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-
   const load = async () => {
     setLoading(true);
     try { setClients(await fetchClients()); } catch (e) { toast.error(e.message); }
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
-
   const onDelete = async (c) => {
     if (!window.confirm(`Delete ${c.name}? This removes all their videos and payments.`)) return;
     try { await deleteClient(c.id); toast.success('Client deleted'); load(); } catch (e) { toast.error(e.message); }
   };
-
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -94,11 +79,8 @@ export default function Clients() {
           <h1 className="text-4xl font-bold tracking-tight">Clients</h1>
           <p className="text-[#7c8d8e] mt-1 text-sm">{clients.length} total clients</p>
         </div>
-        <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm transition-colors">
-          <Plus className="w-4 h-4" /> Add Client
-        </button>
+        <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm transition-colors"><Plus className="w-4 h-4" /> Add Client</button>
       </div>
-
       {loading ? (
         <div className="py-20 flex justify-center"><Loader2 className="w-6 h-6 text-[#2dd4bf] animate-spin" /></div>
       ) : (
@@ -126,7 +108,6 @@ export default function Clients() {
           ))}
         </div>
       )}
-
       <ClientForm open={open} onOpenChange={setOpen} initial={editing} onSaved={load} />
     </div>
   );

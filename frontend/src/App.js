@@ -35,19 +35,11 @@ function App() {
         <AuthProvider>
           <Routes>
             <Route path="/" element={<RootRedirect />} />
-            <Route path="/login" element={<Login mode="client" />} />
-            <Route path="/admin/login" element={<Login mode="admin" />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/admin/login" element={<Navigate to="/login" replace />} />
             <Route path="/signup" element={<Signup />} />
 
-            {/* Admin routes */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute requireRole="admin">
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
+            <Route path="/admin" element={<ProtectedRoute requireRole="admin"><Layout /></ProtectedRoute>}>
               <Route index element={<Dashboard />} />
               <Route path="clients" element={<Clients />} />
               <Route path="clients/:id" element={<ClientDetail />} />
@@ -55,15 +47,7 @@ function App() {
               <Route path="portal/:id" element={<AdminClientPortalDetail />} />
             </Route>
 
-            {/* Client routes */}
-            <Route
-              path="/portal"
-              element={
-                <ProtectedRoute requireRole="client">
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
+            <Route path="/portal" element={<ProtectedRoute requireRole="client"><Layout /></ProtectedRoute>}>
               <Route index element={<ClientHome />} />
             </Route>
 
