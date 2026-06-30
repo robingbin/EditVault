@@ -28,39 +28,48 @@ export default function Dashboard() {
   const [pendingVideos, setPendingVideos] = useState([]);
   const [payments, setPayments] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [schemaErrors, setSchemaErrors] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      try {
-        const [clientsRes, pending, monthVideosRes, paymentsRes, act] = await Promise.all([
-          supabase.from('clients').select('id'),
-          fetchPendingVideos(),
-          supabase.from('videos').select('*').eq('year', year).eq('month', month),
-          supabase.from('payments').select('*, clients(name)').eq('year', year).eq('month', month),
-          fetchRecentActivity(10),
-        ]);
-        if (cancelled) return;
-        const clients = clientsRes.data || [];
-        const monthVideos = monthVideosRes.data || [];
-        const monthPayments = paymentsRes.data || [];
-        const awaiting = monthVideos.filter((v) => ['Sent To Client','Client Review'].includes(v.status)).length;
-        const billing = monthVideos.filter((v) => ['Client Approved','Posted'].includes(v.status)).reduce((a,v) => a + Number(v.amount || 0), 0);
-        const pendingPay = monthPayments.filter((p) => p.status === 'Pending').reduce((a,p) => a + Number(p.total_amount || 0), 0);
-        setStats({
-          pendingWork: pending.length,
-          awaitingClient: awaiting,
-          activeClients: clients.length,
-          thisMonthBilling: billing,
-          pendingPayment: pendingPay,
-        });
-        setPendingVideos(pending);
-        setPayments(monthPayments);
-        setActivity(act);
-      } finally {
-        setLoading(false);
+      const safeResults = await Promise.allSettled([
+        supabase.from('clients').select('id'),
+        fetchPendingVideos(),
+        supabase.from('videos').select('*').eq('year', year).eq('month', month),
+        supabase.from('payments').select('*, clients(name)').eq('year', year).eq('month', month),
+        fetchRecentActivity(10),
+      ]);
+      if (cancelled) return;
+      const [clientsR, pendingR, monthVideosR, paymentsR, actR] = safeResults;
+      const errs = [];
+      const clients = clientsR.status === 'fulfilled' ? (clientsR.value.data || []) : (errs.push(`clients: ${clientsR.reason?.message || clientsR.value?.error?.message}`), []);
+      const pending = pendingR.status === 'fulfilled' ? pendingR.value : (errs.push(`videos: ${pendingR.reason?.message}`), []);
+      const monthVideos = monthVideosR.status === 'fulfilled' ? (monthVideosR.value.data || []) : [];
+      const monthPayments = paymentsR.status === 'fulfilled' ? (paymentsR.value.data || []) : [];
+      const act = actR.status === 'fulfilled' ? actR.value : (errs.push(`activity_log: ${actR.reason?.message}`), []);
+      const awaiting = monthVideos.filter((v) => ['Sent To Client','Client Review'].includes(v.status)).length;
+      const billing = monthVideos.filter((v) => ['Client Approved','Posted'].includes(v.status)).reduce((a,v) => a + Number(v.amount || 0), 0);
+      const pendingPay = monthPayments.filter((p) => p.status === 'Pending').reduce((a,p) => a + Number(p.total_amount || 0), 0);
+      setStats({
+        pendingWork: pending.length,
+        awaitingClient: awaiting,
+        activeClients: clients.length,
+        thisMonthBilling: billing,
+        pendingPayment: pendingPay,
+      });
+      setPendingVideos(pending);
+      setPayments(monthPayments);
+      setActivity(act);
+      if (errs.length) {
+        // eslint-disable-next-line no-console
+        console.warn('[Dashboard] Some queries failed (schema not applied?):', errs);
+        setSchemaErrors(errs);
+      } else {
+        setSchemaErrors([]);
       }
+      setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [year, month]);
@@ -73,6 +82,15 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10">
+      {schemaErrors.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-4 text-[13px] text-amber-200">
+          <div className="font-semibold mb-1">Database schema not fully applied</div>
+          <div className="text-amber-200/80">The following queries failed — please run <code className="font-mono text-amber-100">/app/supabase_schema.sql</code> in the Supabase SQL Editor:</div>
+          <ul className="list-disc list-inside mt-1 text-amber-200/80">
+            {schemaErrors.map((e, i) => <li key={i} className="font-mono text-[12px]">{e}</li>)}
+          </ul>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-6 flex-wrap">
         <div>
           <h1 className="text-4xl font-bold tracking-tight">Dashboard</h1>
