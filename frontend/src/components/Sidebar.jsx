@@ -10,7 +10,7 @@ const adminItems = [
   { to: "/admin/portal", label: "Client Portal", icon: Monitor },
 ];
 const clientItems = [
-  { to: "/portal", label: "My Videos", icon: Monitor, end: true },
+  { to: "/portal", label: "Dashboard", icon: Monitor, end: true },
 ];
 
 export default function Sidebar() {

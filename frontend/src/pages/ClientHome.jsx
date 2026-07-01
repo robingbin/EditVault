@@ -42,6 +42,7 @@ function VideoCard({ v, onAction, onSavePosted }) {
             {v.name} {locked && <Lock className="w-3.5 h-3.5 text-[#7c8d8e]" />}
           </div>
           <div className="flex items-center gap-3 mt-1 text-[12px] text-[#8aa0a1] flex-wrap">
+            <span className="px-1.5 py-0.5 rounded-md bg-[#0e2624] text-[#2dd4bf] border border-[#143a37] text-[10.5px] font-medium">{v.category || 'Video'}</span>
             <span className="font-mono-num">{v.duration}</span><span>•</span><span>{v.type}</span><span>•</span><span className="font-mono-num">{v.version}</span><span>•</span>
             <span className="text-[#d6e7e6] font-mono-num">₹{Number(v.amount).toLocaleString()}</span>
           </div>
@@ -153,31 +154,25 @@ export default function ClientHome() {
         </div>
       </div>
 
-      <Section title="Videos Waiting For Review" count={buckets.pending.length}>
-        {buckets.pending.length === 0 ? <Empty msg="Nothing waiting for you right now." /> : (
-          <div className="space-y-3">{buckets.pending.map((v) => <VideoCard key={v.id} v={v} onAction={onAction} onSavePosted={onSavePosted} />)}</div>
+      <Section title="Current Projects" count={buckets.pending.length + buckets.corrections.length}>
+        {(buckets.pending.length + buckets.corrections.length) === 0 ? <Empty msg="Nothing waiting for you right now." /> : (
+          <div className="space-y-3">{[...buckets.pending, ...buckets.corrections].map((v) => <VideoCard key={v.id} v={v} onAction={onAction} onSavePosted={onSavePosted} />)}</div>
         )}
       </Section>
 
-      <Section title="Correction Requests" count={buckets.corrections.length}>
-        {buckets.corrections.length === 0 ? <Empty msg="No corrections pending." /> : (
-          <div className="space-y-3">{buckets.corrections.map((v) => <VideoCard key={v.id} v={v} onAction={onAction} onSavePosted={onSavePosted} />)}</div>
-        )}
-      </Section>
-
-      <Section title="Approved Videos" count={buckets.approved.length}>
-        {buckets.approved.length === 0 ? <Empty msg="No approved videos yet." /> : (
+      <Section title="Completed Projects" count={buckets.approved.length}>
+        {buckets.approved.length === 0 ? <Empty msg="No completed projects yet." /> : (
           <div className="space-y-3">{buckets.approved.map((v) => <VideoCard key={v.id} v={v} onAction={onAction} onSavePosted={onSavePosted} />)}</div>
         )}
       </Section>
 
-      <Section title="Rejected Videos" count={buckets.rejected.length}>
-        {buckets.rejected.length === 0 ? <Empty msg="No rejected videos." /> : (
+      <Section title="Rejected Projects" count={buckets.rejected.length}>
+        {buckets.rejected.length === 0 ? <Empty msg="No rejected projects." /> : (
           <div className="space-y-3">{buckets.rejected.map((v) => <VideoCard key={v.id} v={v} onAction={onAction} onSavePosted={onSavePosted} />)}</div>
         )}
       </Section>
 
-      <Section title="Invoices" count={invoices.length}>
+      <Section title="Invoice History" count={invoices.length}>
         {invoices.length === 0 ? <Empty msg="No invoices yet." /> : (
           <div className="rounded-xl border border-[#142021] bg-[#0c1314] overflow-hidden">
             <table className="w-full text-sm">
@@ -197,7 +192,7 @@ export default function ClientHome() {
         )}
       </Section>
 
-      <Section title="Payment Status" count={payments.length}>
+      <Section title="Payment History" count={payments.length}>
         {payments.length === 0 ? <Empty msg="No payment records." /> : (
           <div className="rounded-xl border border-[#142021] bg-[#0c1314] overflow-hidden">
             <table className="w-full text-sm">

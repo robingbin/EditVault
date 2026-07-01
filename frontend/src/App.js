@@ -8,7 +8,6 @@ import AdminClientPortal from "./pages/ClientPortal";
 import AdminClientPortalDetail from "./pages/ClientPortalDetail";
 import ClientHome from "./pages/ClientHome";
 import Login from "./pages/Login";
-import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -32,8 +31,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/admin/login" element={<Navigate to="/login" replace />} />
             <Route path="/signup" element={<Navigate to="/login" replace />} />
-            <Route path="/reset" element={<ResetPassword />} />
-
+            <Route path="/reset" element={<Navigate to="/login" replace />} />
             <Route path="/admin" element={<ProtectedRoute requireRole="admin"><Layout /></ProtectedRoute>}>
               <Route index element={<Dashboard />} />
               <Route path="clients" element={<Clients />} />
@@ -41,11 +39,9 @@ function App() {
               <Route path="portal" element={<AdminClientPortal />} />
               <Route path="portal/:id" element={<AdminClientPortalDetail />} />
             </Route>
-
             <Route path="/portal" element={<ProtectedRoute requireRole="client"><Layout /></ProtectedRoute>}>
               <Route index element={<ClientHome />} />
             </Route>
-
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

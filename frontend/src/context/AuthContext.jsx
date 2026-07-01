@@ -10,35 +10,25 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId, email) => {
-    if (!userId) {
-      setProfile(null);
-      setClientRecord(null);
-      return;
-    }
-    const { data: prof } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+    if (!userId) { setProfile(null); setClientRecord(null); return; }
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     setProfile(prof || null);
-
     if (prof?.role === 'client') {
-      const { data: client } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('profile_id', userId)
-        .maybeSingle();
-      if (client) {
-        setClientRecord(client);
-      } else if (email) {
-        // Fallback by email if trigger hasn't linked yet
-        const { data: byEmail } = await supabase
-          .from('clients')
-          .select('*')
-          .ilike('email', email)
-          .maybeSingle();
-        setClientRecord(byEmail || null);
+      // Prefer link by profile_id
+      const { data: byLink } = await supabase.from('clients').select('*').eq('profile_id', userId).maybeSingle();
+      if (byLink) { setClientRecord(byLink); return; }
+      // Fallback by username (synthetic email trick)
+      if (prof.username) {
+        const { data: byUsername } = await supabase.from('clients').select('*').ilike('username', prof.username).maybeSingle();
+        if (byUsername) { setClientRecord(byUsername); return; }
       }
+      // Fallback by email (legacy)
+      if (email) {
+        const { data: byEmail } = await supabase.from('clients').select('*').ilike('email', email).maybeSingle();
+        setClientRecord(byEmail || null);
+        return;
+      }
+      setClientRecord(null);
     } else {
       setClientRecord(null);
     }
@@ -49,60 +39,30 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
       setSession(data.session);
-      if (data.session?.user) {
-        await fetchProfile(data.session.user.id, data.session.user.email);
-      }
+      if (data.session?.user) await fetchProfile(data.session.user.id, data.session.user.email);
       setLoading(false);
     });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, sess) => {
       setSession(sess);
-      if (sess?.user) {
-        await fetchProfile(sess.user.id, sess.user.email);
-      } else {
-        setProfile(null);
-        setClientRecord(null);
-      }
+      if (sess?.user) await fetchProfile(sess.user.id, sess.user.email);
+      else { setProfile(null); setClientRecord(null); }
     });
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
   }, [fetchProfile]);
 
-  const signIn = async ({ email, password }) => {
-    return supabase.auth.signInWithPassword({ email, password });
-  };
-
-  const signUp = async ({ email, password, fullName }) => {
-    return supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
-    });
-  };
-
+  const signIn = async ({ email, password }) => supabase.auth.signInWithPassword({ email, password });
   const signOut = async () => {
     await supabase.auth.signOut();
-    setSession(null);
-    setProfile(null);
-    setClientRecord(null);
+    setSession(null); setProfile(null); setClientRecord(null);
   };
 
   const value = {
-    session,
-    user: session?.user || null,
-    profile,
+    session, user: session?.user || null, profile,
     role: profile?.role || null,
-    isAdmin: profile?.role === 'admin',
-    isClient: profile?.role === 'client',
-    clientRecord,
-    loading,
-    signIn,
-    signUp,
-    signOut,
+    isAdmin: profile?.role === 'admin', isClient: profile?.role === 'client',
+    clientRecord, loading, signIn, signOut,
     refresh: () => session?.user && fetchProfile(session.user.id, session.user.email),
   };
-
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

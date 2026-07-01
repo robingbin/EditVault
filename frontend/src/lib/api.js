@@ -1,9 +1,10 @@
-import { supabase } from '../lib/supabaseClient';
+import { supabase, supabaseAdminOps, usernameToEmail } from '../lib/supabaseClient';
 
 export const EDITOR_STATUSES = ['Not Started','WIP','Sent To Client','Corrections Updated'];
 export const CLIENT_STATUSES = ['Pending Review','Approved','Correction','Rejected'];
 export const CLIENT_VISIBLE_EDITOR = ['Sent To Client','Corrections Updated'];
 export const PENDING_EDITOR = ['Not Started','WIP'];
+export const CATEGORIES = ['Video','Poster','Thumbnail','Motion Graphics','Banner','Logo','Other'];
 
 // ---------------- Clients ----------------
 export async function fetchClients() {
@@ -27,21 +28,27 @@ export async function deleteClient(id) {
   if (error) throw error;
 }
 
-// ---- Admin: send invite / reset password ----
-export async function sendClientInvite(email) {
-  // Sends a magic link. If the user doesn't exist, creates them (they'll set password on first login).
-  const redirectTo = `${window.location.origin}/login`;
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
+// ---- Admin: create/update client login credentials ----
+// Uses a secondary Supabase client so admin's session is untouched.
+export async function createClientCredentials({ clientId, username, password }) {
+  if (!username || !password) throw new Error('Username and password are required');
+  const uname = username.toLowerCase().trim();
+  const email = usernameToEmail(uname);
+  // Sign up in a detached client (no persisted session).
+  const { data, error } = await supabaseAdminOps.auth.signUp({
+    email, password, options: { data: { username: uname } },
   });
-  if (error) throw error;
+  if (error && !/registered|already/i.test(error.message)) throw error;
+  // Save username on the client record
+  const upd = { username: uname };
+  if (data?.user?.id) upd.profile_id = data.user.id;
+  const { error: updErr } = await supabase.from('clients').update(upd).eq('id', clientId);
+  if (updErr) throw updErr;
+  await supabaseAdminOps.auth.signOut();
+  return { username: uname, email };
 }
-export async function resetClientPassword(email) {
-  const redirectTo = `${window.location.origin}/reset`;
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-  if (error) throw error;
-}
+export async function sendClientInvite() { throw new Error('Disabled: this app uses username/password login.'); }
+export async function resetClientPassword() { throw new Error('Reset from Supabase Dashboard → Authentication → Users, or delete the client and recreate credentials.'); }
 
 // ---------------- Videos ----------------
 export async function fetchVideosForClientPeriod(clientId, year, month) {
@@ -190,7 +197,7 @@ export async function deleteClientPeriod(clientId, year, month) {
   await supabase.from('payments').delete().eq('client_id', clientId).eq('year', year).eq('month', month);
 }
 export async function duplicatePreviousMonth(clientId, fromYear, fromMonth, toYear, toMonth) {
-  const { data, error } = await supabase.from('videos').select('name, duration, type, version, amount, due_date').eq('client_id', clientId).eq('year', fromYear).eq('month', fromMonth);
+  const { data, error } = await supabase.from('videos').select('name, duration, type, category, version, amount, due_date').eq('client_id', clientId).eq('year', fromYear).eq('month', fromMonth);
   if (error) throw error;
   if (!data || data.length === 0) return 0;
   const payload = data.map((v) => ({ ...v, client_id: clientId, year: toYear, month: toMonth, editor_status: 'Not Started', client_status: null, client_locked: false, posted_date: null, version: 'V1' }));

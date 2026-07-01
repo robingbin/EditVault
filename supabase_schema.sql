@@ -1,7 +1,8 @@
 -- =====================================================================
--- EditVault — Production Schema (v3.1)
--- Approval workflow with separate Editor Status & Client Status
--- Fully idempotent — safe on fresh installs and existing v1 / v2 databases.
+-- EditVault — Production Schema (v3.2)
+-- Approval workflow with split Editor + Client Status,
+-- username-based login (synthetic email), project categories.
+-- Fully idempotent — safe on fresh installs and existing v1 / v2 / v3 DBs.
 -- Run in: Supabase Dashboard → SQL Editor
 -- =====================================================================
 -- BUCKET (once, in Supabase Dashboard → Storage):
@@ -52,10 +53,12 @@ end $$;
 create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   email       text not null,
+  username    text unique,
   full_name   text,
   role        text not null default 'client' check (role in ('admin','client')),
   created_at  timestamptz default now()
 );
+alter table public.profiles add column if not exists username text unique;
 
 create or replace function public.is_admin()
 returns boolean language sql security definer stable set search_path = public as $$
@@ -64,10 +67,13 @@ $$;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare uname text;
 begin
-  insert into public.profiles (id, email, full_name, role)
-  values (new.id, new.email,
-    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email,'@',1)),
+  -- Extract username from synthetic email <username>@editvault.local, else null
+  uname := case when new.email like '%@editvault.local' then split_part(new.email,'@',1) else null end;
+  insert into public.profiles (id, email, username, full_name, role)
+  values (new.id, new.email, uname,
+    coalesce(new.raw_user_meta_data->>'full_name', coalesce(uname, split_part(new.email,'@',1))),
     'client')
   on conflict (id) do nothing;
   return new;
@@ -85,17 +91,25 @@ create table if not exists public.clients (
   name         text not null,
   phone        text,
   email        text not null unique,
+  username     text unique,
   monthly_fee  numeric(12,2) not null default 0,
   active       boolean not null default true,
   created_at   timestamptz default now()
 );
 alter table public.clients add column if not exists active boolean not null default true;
+alter table public.clients add column if not exists username text unique;
 create index if not exists clients_profile_id_idx on public.clients(profile_id);
 create index if not exists clients_email_idx      on public.clients(lower(email));
+create index if not exists clients_username_idx   on public.clients(lower(username));
 
 create or replace function public.link_client_to_profile()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  -- Link by username first (username-based logins), then fallback to email.
+  if new.username is not null then
+    update public.clients set profile_id = new.id
+     where lower(username) = lower(new.username) and profile_id is null;
+  end if;
   update public.clients set profile_id = new.id
    where lower(email) = lower(new.email) and profile_id is null;
   return new;
@@ -148,6 +162,12 @@ alter table public.videos add column if not exists posted_date   date;
 alter table public.videos add column if not exists client_locked boolean not null default false;
 alter table public.videos add column if not exists due_date      date;
 alter table public.videos add column if not exists sent_at       timestamptz;
+alter table public.videos add column if not exists category      text not null default 'Video';
+
+-- Category constraint (idempotent)
+alter table public.videos drop constraint if exists videos_category_check;
+alter table public.videos add  constraint videos_category_check
+  check (category in ('Video','Poster','Thumbnail','Motion Graphics','Banner','Logo','Other'));
 
 -- Migrate legacy `status` -> editor_status / client_status  (safe: triggers are dropped)
 do $$ begin
@@ -343,6 +363,7 @@ begin
     end if;
     if new.name <> old.name or new.duration <> old.duration or new.version <> old.version
        or coalesce(new.amount,0) <> coalesce(old.amount,0) or new.type <> old.type
+       or coalesce(new.category,'') <> coalesce(old.category,'')
        or new.editor_status <> old.editor_status
        or new.due_date is distinct from old.due_date
        or new.year <> old.year or new.month <> old.month then

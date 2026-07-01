@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Phone, Mail, Wallet, FileText, CheckCircle2, Plus, Pencil, Trash2, Loader2, Unlock, Copy } from "lucide-react";
-import { fetchClient, fetchVideosForClientPeriod, createVideo, updateVideo, deleteVideo, markMonthPaid, createInvoice, upsertPayment, fetchVideoTypes, createVideoType, EDITOR_STATUSES, CLIENT_STATUSES, setEditorStatus, setClientStatus, unlockClient, fetchCorrections, duplicatePreviousMonth, listClientPeriods, deleteClientPeriod } from "../lib/api";
+import { fetchClient, fetchVideosForClientPeriod, createVideo, updateVideo, deleteVideo, markMonthPaid, createInvoice, upsertPayment, fetchVideoTypes, createVideoType, EDITOR_STATUSES, CLIENT_STATUSES, CATEGORIES, setEditorStatus, setClientStatus, unlockClient, fetchCorrections, duplicatePreviousMonth, listClientPeriods, deleteClientPeriod } from "../lib/api";
 import Avatar from "../components/Avatar";
 import StatusBadge from "../components/StatusBadge";
 import { toast } from "sonner";
@@ -35,16 +35,16 @@ function FieldSelect({ label, value, onChange, options, full }) {
 
 function VideoForm({ open, onOpenChange, initial, clientId, year, month, onSaved, types, onTypeAdded }) {
   const isEdit = !!initial;
-  const [form, setForm] = useState({ name: '', duration: '00:00', type: 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
+  const [form, setForm] = useState({ name: '', category: 'Video', duration: '00:00', type: 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
   const [submitting, setSubmitting] = useState(false);
   const [newType, setNewType] = useState('');
   useEffect(() => {
     if (open) {
       setForm(initial ? {
-        name: initial.name, duration: initial.duration, type: initial.type, version: initial.version,
+        name: initial.name, category: initial.category || 'Video', duration: initial.duration, type: initial.type, version: initial.version,
         editor_status: initial.editor_status, client_status: initial.client_status || 'Pending Review',
         due_date: initial.due_date || '', amount: initial.amount, posted_date: initial.posted_date || '',
-      } : { name: '', duration: '00:00', type: types[0]?.name || 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
+      } : { name: '', category: 'Video', duration: '00:00', type: types[0]?.name || 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
       setNewType('');
     }
   }, [open, initial, types]);
@@ -67,9 +67,10 @@ function VideoForm({ open, onOpenChange, initial, clientId, year, month, onSaved
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#0d1516] border border-[#142021] text-[#e6f7f6] max-w-lg">
-        <DialogHeader><DialogTitle>{isEdit ? 'Edit Video' : 'Add Video'}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isEdit ? 'Edit' : 'Add'}</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="grid grid-cols-2 gap-3">
-          <FieldText label="Video Name" value={form.name} onChange={set('name')} required full />
+          <FieldText label="Name" value={form.name} onChange={set('name')} required full />
+          <FieldSelect label="Category" value={form.category} onChange={set('category')} options={CATEGORIES} />
           <FieldText label="Duration (mm:ss)" value={form.duration} onChange={set('duration')} placeholder="01:20" />
           <FieldText label="Last Version" value={form.version} onChange={set('version')} placeholder="V1" />
           <FieldSelect label="Type" value={form.type} onChange={set('type')} options={types.map(t=>t.name)} />
@@ -225,14 +226,15 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <div><button onClick={() => { setEditing(null); setFormOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm"><Plus className="w-4 h-4" /> Add Video</button></div>
+      <div><button onClick={() => { setEditing(null); setFormOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm"><Plus className="w-4 h-4" /> Add</button></div>
 
       <div className="rounded-xl border border-[#142021] bg-[#0c1314] overflow-x-auto">
-        <table className="w-full text-sm min-w-[1100px]">
+        <table className="w-full text-sm min-w-[1180px]">
           <thead>
             <tr className="text-left text-[12px] text-[#7c8d8e] border-b border-[#142021]">
               <th className="px-3 py-3 font-normal w-8">#</th>
-              <th className="px-3 py-3 font-normal">Video</th>
+              <th className="px-3 py-3 font-normal">Name</th>
+              <th className="px-3 py-3 font-normal">Category</th>
               <th className="px-3 py-3 font-normal">Duration</th>
               <th className="px-3 py-3 font-normal">Type</th>
               <th className="px-3 py-3 font-normal">Ver.</th>
@@ -246,11 +248,12 @@ export default function ClientDetail() {
           </thead>
           <tbody>
             {videos.length === 0 ? (
-              <tr><td colSpan={11} className="px-5 py-10 text-center text-[#7c8d8e]">No videos for this month.</td></tr>
+              <tr><td colSpan={12} className="px-5 py-10 text-center text-[#7c8d8e]">No projects for this month.</td></tr>
             ) : videos.map((v, idx) => (
               <tr key={v.id} className="border-b border-[#101a1b] last:border-b-0 hover:bg-[#0f1819]">
                 <td className="px-3 py-3 text-[#7c8d8e] font-mono-num">{idx + 1}</td>
                 <td className="px-3 py-3 text-[#e6f7f6] font-medium">{v.name}</td>
+                <td className="px-3 py-3 text-[#9bb0b1]">{v.category || 'Video'}</td>
                 <td className="px-3 py-3 font-mono-num text-[#d6e7e6]">{v.duration}</td>
                 <td className="px-3 py-3 text-[#9bb0b1]">{v.type}</td>
                 <td className="px-3 py-3 text-[#9bb0b1] font-mono-num">{v.version}</td>
