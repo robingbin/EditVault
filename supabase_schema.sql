@@ -9,8 +9,9 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- STEP 0. Drop ALL previous videos-related triggers BEFORE any migration
---         (they may enforce old rules and block data updates).
+-- STEP 0. Drop ALL previous triggers, functions and RLS policies that
+--         reference videos.status BEFORE any migration.
+--         Nothing can depend on the old column when we drop it later.
 -- ---------------------------------------------------------------------
 drop trigger  if exists trg_videos_client_rules       on public.videos;
 drop trigger  if exists trg_videos_rules              on public.videos;
@@ -20,6 +21,30 @@ drop function if exists public.videos_enforce_client_rules() cascade;
 drop function if exists public.videos_enforce_rules()        cascade;
 drop function if exists public.log_video_activity()          cascade;
 drop function if exists public.notify_invoice()              cascade;
+
+-- Drop ALL policies on public.videos (v1, v2, v3 possible names)
+do $$
+declare pol record;
+begin
+  for pol in select policyname from pg_policies where schemaname='public' and tablename='videos' loop
+    execute format('drop policy if exists %I on public.videos', pol.policyname);
+  end loop;
+end $$;
+
+-- Drop known payment / invoice / activity / notification / clients / corrections policies too,
+-- so recreates below never conflict on older installs.
+do $$
+declare pol record;
+begin
+  for pol in
+    select tablename, policyname
+      from pg_policies
+     where schemaname='public'
+       and tablename in ('profiles','clients','payments','invoices','video_types','corrections','activity_log','notifications')
+  loop
+    execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 1. PROFILES
