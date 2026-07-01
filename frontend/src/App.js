@@ -8,7 +8,7 @@ import AdminClientPortal from "./pages/ClientPortal";
 import AdminClientPortalDetail from "./pages/ClientPortalDetail";
 import ClientHome from "./pages/ClientHome";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -17,13 +17,7 @@ import { Loader2 } from "lucide-react";
 
 function RootRedirect() {
   const { session, profile, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0a0e0f]">
-        <Loader2 className="w-6 h-6 text-[#2dd4bf] animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return (<div className="min-h-screen flex items-center justify-center bg-[#0a0e0f]"><Loader2 className="w-6 h-6 text-[#2dd4bf] animate-spin" /></div>);
   if (!session) return <Navigate to="/login" replace />;
   return <Navigate to={profile?.role === 'admin' ? '/admin' : '/portal'} replace />;
 }
@@ -37,7 +31,8 @@ function App() {
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<Login />} />
             <Route path="/admin/login" element={<Navigate to="/login" replace />} />
-            <Route path="/signup" element={<Signup />} />
+            <Route path="/signup" element={<Navigate to="/login" replace />} />
+            <Route path="/reset" element={<ResetPassword />} />
 
             <Route path="/admin" element={<ProtectedRoute requireRole="admin"><Layout /></ProtectedRoute>}>
               <Route index element={<Dashboard />} />

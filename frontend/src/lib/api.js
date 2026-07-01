@@ -1,12 +1,9 @@
 import { supabase } from '../lib/supabaseClient';
 
-export const ADMIN_STATUSES = [
-  'Pending','Editing','Internal Review','Editing Completed','Sent To Client',
-  'Client Review','Correction Requested','Re-Editing','Client Approved','Posted','Archived'
-];
-export const CLIENT_STATUSES = ['Client Review','Correction Requested','Client Approved','Posted'];
-export const CLIENT_VISIBLE = ['Sent To Client','Client Review','Correction Requested','Client Approved','Posted'];
-export const PENDING_STATUSES = ['Pending','Editing','Internal Review','Editing Completed'];
+export const EDITOR_STATUSES = ['Not Started','WIP','Sent To Client','Corrections Updated'];
+export const CLIENT_STATUSES = ['Pending Review','Approved','Correction','Rejected'];
+export const CLIENT_VISIBLE_EDITOR = ['Sent To Client','Corrections Updated'];
+export const PENDING_EDITOR = ['Not Started','WIP'];
 
 // ---------------- Clients ----------------
 export async function fetchClients() {
@@ -30,13 +27,37 @@ export async function deleteClient(id) {
   if (error) throw error;
 }
 
+// ---- Admin: send invite / reset password ----
+export async function sendClientInvite(email) {
+  // Sends a magic link. If the user doesn't exist, creates them (they'll set password on first login).
+  const redirectTo = `${window.location.origin}/login`;
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
+  });
+  if (error) throw error;
+}
+export async function resetClientPassword(email) {
+  const redirectTo = `${window.location.origin}/reset`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
+}
+
 // ---------------- Videos ----------------
 export async function fetchVideosForClientPeriod(clientId, year, month) {
   const { data, error } = await supabase.from('videos').select('*').eq('client_id', clientId).eq('year', year).eq('month', month).order('created_at', { ascending: true });
   if (error) throw error; return data || [];
 }
 export async function fetchPendingVideos() {
-  const { data, error } = await supabase.from('videos').select('*, clients(name)').in('status', PENDING_STATUSES).order('due_date', { ascending: true, nullsFirst: false });
+  const { data, error } = await supabase.from('videos').select('*, clients(name)').in('editor_status', PENDING_EDITOR).order('due_date', { ascending: true, nullsFirst: false });
+  if (error) throw error; return data || [];
+}
+export async function fetchCorrectionQueue() {
+  const { data, error } = await supabase.from('videos').select('*, clients(name)').eq('client_status', 'Correction').order('created_at', { ascending: true });
+  if (error) throw error; return data || [];
+}
+export async function fetchRejectedVideos() {
+  const { data, error } = await supabase.from('videos').select('*, clients(name)').eq('client_status', 'Rejected').order('created_at', { ascending: false });
   if (error) throw error; return data || [];
 }
 export async function fetchClientVideos(clientId) {
@@ -55,15 +76,15 @@ export async function deleteVideo(id) {
   const { error } = await supabase.from('videos').delete().eq('id', id);
   if (error) throw error;
 }
-export async function setVideoStatus(id, status) {
-  return updateVideo(id, { status });
+export async function setEditorStatus(id, editor_status) {
+  return updateVideo(id, { editor_status });
 }
-export async function sendVideoToClient(id) {
-  return updateVideo(id, { status: 'Sent To Client' });
+export async function setClientStatus(id, patch) {
+  // patch may include { client_status, posted_date }
+  return updateVideo(id, patch);
 }
-export async function unlockPosted(id) {
-  // Admin sets status back to Client Approved & unlocks (trigger handles unlock when status != Posted)
-  return updateVideo(id, { status: 'Client Approved' });
+export async function unlockClient(id) {
+  return updateVideo(id, { client_locked: false, posted_date: null });
 }
 
 // ---------------- Payments ----------------
@@ -103,10 +124,6 @@ export async function createVideoType(name) {
   const { data, error } = await supabase.from('video_types').insert({ name, is_default: false }).select().single();
   if (error) throw error; return data;
 }
-export async function deleteVideoType(id) {
-  const { error } = await supabase.from('video_types').delete().eq('id', id);
-  if (error) throw error;
-}
 
 // ---------------- Corrections ----------------
 export async function createCorrection(payload, fileScreenshot, fileVoice) {
@@ -143,10 +160,6 @@ export async function fetchRecentActivity(limit = 10) {
   const { data, error } = await supabase.from('activity_log').select('*, clients(name)').order('created_at', { ascending: false }).limit(limit);
   if (error) throw error; return data || [];
 }
-export async function fetchClientActivity(clientId, limit = 20) {
-  const { data, error } = await supabase.from('activity_log').select('*').eq('client_id', clientId).order('created_at', { ascending: false }).limit(limit);
-  if (error) throw error; return data || [];
-}
 
 // ---------------- Notifications ----------------
 export async function fetchNotifications(limit = 30) {
@@ -163,31 +176,24 @@ export async function markAllNotificationsRead() {
 }
 
 // ---------------- Months / Years management ----------------
-// Helper: list (year, month) combinations that have any videos for a client (admin)
 export async function listClientPeriods(clientId) {
   const { data, error } = await supabase.from('videos').select('year, month').eq('client_id', clientId);
   if (error) throw error;
-  const seen = new Set();
-  const periods = [];
-  (data || []).forEach((r) => {
-    const k = `${r.year}-${r.month}`;
-    if (!seen.has(k)) { seen.add(k); periods.push({ year: r.year, month: r.month }); }
-  });
+  const seen = new Set(); const periods = [];
+  (data || []).forEach((r) => { const k = `${r.year}-${r.month}`; if (!seen.has(k)) { seen.add(k); periods.push({ year: r.year, month: r.month }); } });
   periods.sort((a, b) => (b.year - a.year) || (b.month - a.month));
   return periods;
 }
-
 export async function deleteClientPeriod(clientId, year, month) {
   const { error } = await supabase.from('videos').delete().eq('client_id', clientId).eq('year', year).eq('month', month);
   if (error) throw error;
   await supabase.from('payments').delete().eq('client_id', clientId).eq('year', year).eq('month', month);
 }
-
 export async function duplicatePreviousMonth(clientId, fromYear, fromMonth, toYear, toMonth) {
   const { data, error } = await supabase.from('videos').select('name, duration, type, version, amount, due_date').eq('client_id', clientId).eq('year', fromYear).eq('month', fromMonth);
   if (error) throw error;
   if (!data || data.length === 0) return 0;
-  const payload = data.map((v) => ({ ...v, client_id: clientId, year: toYear, month: toMonth, status: 'Pending', version: 'V1' }));
+  const payload = data.map((v) => ({ ...v, client_id: clientId, year: toYear, month: toMonth, editor_status: 'Not Started', client_status: null, client_locked: false, posted_date: null, version: 'V1' }));
   const { error: insErr } = await supabase.from('videos').insert(payload);
   if (insErr) throw insErr;
   return payload.length;

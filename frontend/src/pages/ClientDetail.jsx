@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, Wallet, FileText, CheckCircle2, Plus, Pencil, Trash2, Loader2, Send, Unlock, Copy } from "lucide-react";
-import { fetchClient, fetchVideosForClientPeriod, createVideo, updateVideo, deleteVideo, markMonthPaid, createInvoice, upsertPayment, fetchVideoTypes, createVideoType, ADMIN_STATUSES, setVideoStatus, sendVideoToClient, unlockPosted, fetchCorrections, duplicatePreviousMonth, listClientPeriods, deleteClientPeriod } from "../lib/api";
+import { ArrowLeft, Phone, Mail, Wallet, FileText, CheckCircle2, Plus, Pencil, Trash2, Loader2, Unlock, Copy } from "lucide-react";
+import { fetchClient, fetchVideosForClientPeriod, createVideo, updateVideo, deleteVideo, markMonthPaid, createInvoice, upsertPayment, fetchVideoTypes, createVideoType, EDITOR_STATUSES, CLIENT_STATUSES, setEditorStatus, setClientStatus, unlockClient, fetchCorrections, duplicatePreviousMonth, listClientPeriods, deleteClientPeriod } from "../lib/api";
 import Avatar from "../components/Avatar";
 import StatusBadge from "../components/StatusBadge";
 import { toast } from "sonner";
@@ -35,15 +35,16 @@ function FieldSelect({ label, value, onChange, options, full }) {
 
 function VideoForm({ open, onOpenChange, initial, clientId, year, month, onSaved, types, onTypeAdded }) {
   const isEdit = !!initial;
-  const [form, setForm] = useState({ name: '', duration: '00:00', type: 'Instagram Reel', version: 'V1', status: 'Pending', due_date: '', amount: 0 });
+  const [form, setForm] = useState({ name: '', duration: '00:00', type: 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
   const [submitting, setSubmitting] = useState(false);
   const [newType, setNewType] = useState('');
   useEffect(() => {
     if (open) {
       setForm(initial ? {
         name: initial.name, duration: initial.duration, type: initial.type, version: initial.version,
-        status: initial.status, due_date: initial.due_date || '', amount: initial.amount,
-      } : { name: '', duration: '00:00', type: types[0]?.name || 'Instagram Reel', version: 'V1', status: 'Pending', due_date: '', amount: 0 });
+        editor_status: initial.editor_status, client_status: initial.client_status || 'Pending Review',
+        due_date: initial.due_date || '', amount: initial.amount, posted_date: initial.posted_date || '',
+      } : { name: '', duration: '00:00', type: types[0]?.name || 'Instagram Reel', version: 'V1', editor_status: 'Not Started', client_status: 'Pending Review', due_date: '', amount: 0, posted_date: '' });
       setNewType('');
     }
   }, [open, initial, types]);
@@ -51,7 +52,7 @@ function VideoForm({ open, onOpenChange, initial, clientId, year, month, onSaved
   const submit = async (e) => {
     e.preventDefault(); setSubmitting(true);
     try {
-      const payload = { ...form, amount: Number(form.amount) || 0, due_date: form.due_date || null };
+      const payload = { ...form, amount: Number(form.amount) || 0, due_date: form.due_date || null, posted_date: form.posted_date || null };
       if (isEdit) await updateVideo(initial.id, payload);
       else await createVideo({ ...payload, client_id: clientId, year, month });
       toast.success(isEdit ? 'Video updated' : 'Video added');
@@ -73,8 +74,10 @@ function VideoForm({ open, onOpenChange, initial, clientId, year, month, onSaved
           <FieldText label="Last Version" value={form.version} onChange={set('version')} placeholder="V1" />
           <FieldSelect label="Type" value={form.type} onChange={set('type')} options={types.map(t=>t.name)} />
           <FieldText label="Due Date" type="date" value={form.due_date} onChange={set('due_date')} />
-          <FieldSelect label="Status" value={form.status} onChange={set('status')} options={ADMIN_STATUSES} full />
-          <FieldText label="Amount (₹)" type="number" value={form.amount} onChange={set('amount')} full />
+          <FieldSelect label="Editor Status" value={form.editor_status} onChange={set('editor_status')} options={EDITOR_STATUSES} />
+          <FieldSelect label="Client Status" value={form.client_status} onChange={set('client_status')} options={CLIENT_STATUSES} />
+          <FieldText label="Posted Date" type="date" value={form.posted_date} onChange={set('posted_date')} />
+          <FieldText label="Amount (₹)" type="number" value={form.amount} onChange={set('amount')} />
           <div className="col-span-2 flex items-center gap-2 pt-1">
             <input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="Add custom video type…"
               className="flex-1 px-3 py-2 rounded-lg bg-[#0a1112] border border-[#243334] text-[#e6f7f6] text-[13px] outline-none focus:border-[#2dd4bf]" />
@@ -112,7 +115,7 @@ function DuplicateMonthDialog({ open, onOpenChange, clientId, year, month, onDon
         <div className="space-y-3">
           <FieldText label="From Year" type="number" value={fromYear} onChange={setFromYear} />
           <FieldSelect label="From Month" value={String(fromMonth)} onChange={(v)=>setFromMonth(Number(v))} options={MONTHS.map((m,i)=>String(i+1))} />
-          <p className="text-[12px] text-[#8aa0a1]">All videos from the chosen month will be copied with status reset to <b>Pending</b>.</p>
+          <p className="text-[12px] text-[#8aa0a1]">All videos from the chosen month copy with Editor Status reset to <b>Not Started</b>.</p>
         </div>
         <DialogFooter>
           <button onClick={() => onOpenChange(false)} className="px-4 py-2 rounded-lg border border-[#243334] bg-[#0f1819] text-[#d6e7e6] hover:bg-[#152223] text-sm">Cancel</button>
@@ -144,10 +147,7 @@ export default function ClientDetail() {
     try {
       const c = await fetchClient(id); setClient(c);
       const [vs, t, ps, cors] = await Promise.all([
-        fetchVideosForClientPeriod(id, year, month),
-        fetchVideoTypes(),
-        listClientPeriods(id),
-        fetchCorrections({ clientId: id }),
+        fetchVideosForClientPeriod(id, year, month), fetchVideoTypes(), listClientPeriods(id), fetchCorrections({ clientId: id }),
       ]);
       setVideos(vs); setTypes(t); setPeriods(ps); setCorrections(cors);
       const { supabase } = await import('../lib/supabaseClient');
@@ -163,53 +163,34 @@ export default function ClientDetail() {
     const sec = videos.reduce((a,v) => { const [m,s] = (v.duration||'00:00').split(':').map(Number); return a + (m*60+s); }, 0);
     return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
   }, [videos]);
-  const billable = videos.filter((v) => ['Client Approved','Posted'].includes(v.status));
+  // Billable = Approved AND locked (i.e., posted date set)
+  const billable = videos.filter((v) => v.client_status === 'Approved' && v.client_locked);
   const totalAmount = billable.reduce((a,v) => a + Number(v.amount||0), 0);
 
-  const onDeleteVideo = async (v) => {
-    if (!window.confirm(`Delete “${v.name}”?`)) return;
-    try { await deleteVideo(v.id); toast.success('Deleted'); load(); } catch (e) { toast.error(e.message); }
-  };
-  const onMarkPaid = async () => {
-    try { await markMonthPaid(id, year, month, totalAmount); toast.success('Month marked as paid'); load(); } catch (e) { toast.error(e.message); }
-  };
-  const onGenerateInvoice = async () => {
-    try {
-      const inv = await createInvoice(id, year, month, totalAmount);
-      await upsertPayment({ client_id: id, year, month, total_amount: totalAmount, status: paymentStatus?.status || 'Pending' });
-      toast.success(`Invoice ${inv.invoice_no} generated`); load();
-    } catch (e) { toast.error(e.message); }
-  };
-  const onSendToClient = async (v) => {
-    try { await sendVideoToClient(v.id); toast.success('Sent to client'); load(); } catch (e) { toast.error(e.message); }
-  };
-  const onChangeStatus = async (v, status) => {
-    try { await setVideoStatus(v.id, status); toast.success(`Status → ${status}`); load(); } catch (e) { toast.error(e.message); }
-  };
-  const onUnlockPosted = async (v) => {
-    if (!window.confirm('Unlock this Posted video? Client will be able to edit status again.')) return;
-    try { await unlockPosted(v.id); toast.success('Unlocked'); load(); } catch (e) { toast.error(e.message); }
-  };
-  const onDeleteMonth = async () => {
-    if (!window.confirm(`Delete ALL videos & payment for ${MONTHS[month-1]} ${year}?`)) return;
-    try { await deleteClientPeriod(id, year, month); toast.success('Month deleted'); load(); } catch (e) { toast.error(e.message); }
-  };
+  const onDeleteVideo = async (v) => { if (!window.confirm(`Delete “${v.name}”?`)) return; try { await deleteVideo(v.id); toast.success('Deleted'); load(); } catch (e) { toast.error(e.message); } };
+  const onMarkPaid = async () => { try { await markMonthPaid(id, year, month, totalAmount); toast.success('Month marked as paid'); load(); } catch (e) { toast.error(e.message); } };
+  const onGenerateInvoice = async () => { try { const inv = await createInvoice(id, year, month, totalAmount); await upsertPayment({ client_id: id, year, month, total_amount: totalAmount, status: paymentStatus?.status || 'Pending' }); toast.success(`Invoice ${inv.invoice_no} generated`); load(); } catch (e) { toast.error(e.message); } };
+  const onEditorStatus = async (v, val) => { try { await setEditorStatus(v.id, val); toast.success(`Editor → ${val}`); load(); } catch (e) { toast.error(e.message); } };
+  const onClientStatus = async (v, val) => { try { await setClientStatus(v.id, { client_status: val, ...(val === 'Approved' ? {} : { posted_date: null }) }); toast.success(`Client → ${val}`); load(); } catch (e) { toast.error(e.message); } };
+  const onPostedDate = async (v, date) => { try { await setClientStatus(v.id, { posted_date: date || null }); toast.success('Posted date saved'); load(); } catch (e) { toast.error(e.message); } };
+  const onUnlock = async (v) => { if (!window.confirm('Unlock this video? Client can edit again.')) return; try { await unlockClient(v.id); toast.success('Unlocked'); load(); } catch (e) { toast.error(e.message); } };
+  const onDeleteMonth = async () => { if (!window.confirm(`Delete ALL videos & payment for ${MONTHS[month-1]} ${year}?`)) return; try { await deleteClientPeriod(id, year, month); toast.success('Month deleted'); load(); } catch (e) { toast.error(e.message); } };
 
   if (loading && !client) return <div className="py-20 flex justify-center"><Loader2 className="w-6 h-6 text-[#2dd4bf] animate-spin" /></div>;
   if (!client) return <div className="py-10"><Link to="/admin/clients" className="text-[#2dd4bf] inline-flex items-center gap-1.5"><ArrowLeft className="w-4 h-4" /> All Clients</Link><p className="mt-6 text-[#7c8d8e]">Client not found.</p></div>;
 
-  const years = [...new Set(periods.map((p) => p.year).concat([year]))].sort((a, b) => b - a);
+  const years = [...new Set(periods.map((p) => p.year).concat([year]))].sort((a,b) => b - a);
 
   return (
     <div className="space-y-7">
-      <Link to="/admin/clients" className="inline-flex items-center gap-1.5 text-[13px] text-[#8aa0a1] hover:text-[#2dd4bf] transition-colors"><ArrowLeft className="w-4 h-4" /> All Clients</Link>
+      <Link to="/admin/clients" className="inline-flex items-center gap-1.5 text-[13px] text-[#8aa0a1] hover:text-[#2dd4bf]"><ArrowLeft className="w-4 h-4" /> All Clients</Link>
 
       <div className="rounded-2xl border border-[#142021] bg-[#0d1516] px-6 py-5">
         <div className="flex items-start justify-between gap-5 flex-wrap">
           <div className="flex items-center gap-5">
             <Avatar name={client.name} size={56} className="text-xl" />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{client.name}</h1>
+              <h1 className="text-2xl font-bold tracking-tight">{client.name}{!client.active && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/30 align-middle">INACTIVE</span>}</h1>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-[#8aa0a1] mt-1.5">
                 {client.phone && <span className="inline-flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /><span className="font-mono-num">{client.phone}</span></span>}
                 <span className="inline-flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" />{client.email}</span>
@@ -218,22 +199,18 @@ export default function ClientDetail() {
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={onGenerateInvoice} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-[#243334] bg-[#0f1819] text-[#d6e7e6] hover:bg-[#152223] text-sm transition-colors"><FileText className="w-4 h-4" /> Generate Invoice</button>
-            <button onClick={onMarkPaid} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm transition-colors"><CheckCircle2 className="w-4 h-4" />{paymentStatus?.status === 'Paid' ? 'Paid' : 'Mark Month as Paid'}</button>
+            <button onClick={onGenerateInvoice} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-[#243334] bg-[#0f1819] text-[#d6e7e6] hover:bg-[#152223] text-sm"><FileText className="w-4 h-4" /> Generate Invoice</button>
+            <button onClick={onMarkPaid} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm"><CheckCircle2 className="w-4 h-4" />{paymentStatus?.status === 'Paid' ? 'Paid' : 'Mark Month as Paid'}</button>
           </div>
         </div>
       </div>
 
-      {/* Year + Months */}
       <div className="space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setYear(year - 1)} className="px-2 py-1 text-sm text-[#8aa0a1] hover:text-[#2dd4bf]">‹</button>
           <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
             <SelectTrigger className="w-[100px] bg-[#0e2624] border border-[#1f5450] text-[#2dd4bf] h-8"><SelectValue /></SelectTrigger>
-            <SelectContent className="bg-[#0d1516] border border-[#243334] text-[#e6f7f6]">
-              {years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-              <SelectItem value={String(year + 1)}>{year + 1}</SelectItem>
-            </SelectContent>
+            <SelectContent className="bg-[#0d1516] border border-[#243334] text-[#e6f7f6]">{years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}<SelectItem value={String(year + 1)}>{year + 1}</SelectItem></SelectContent>
           </Select>
           <button onClick={() => setYear(year + 1)} className="px-2 py-1 text-sm text-[#8aa0a1] hover:text-[#2dd4bf]">›</button>
           <span className="ml-2"></span>
@@ -248,57 +225,58 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <div>
-        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm transition-colors"><Plus className="w-4 h-4" /> Add Video</button>
-      </div>
+      <div><button onClick={() => { setEditing(null); setFormOpen(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4bf] text-[#0a1f1d] font-medium hover:bg-[#3ee0cb] text-sm"><Plus className="w-4 h-4" /> Add Video</button></div>
 
-      <div className="rounded-xl border border-[#142021] bg-[#0c1314] overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border border-[#142021] bg-[#0c1314] overflow-x-auto">
+        <table className="w-full text-sm min-w-[1100px]">
           <thead>
             <tr className="text-left text-[12px] text-[#7c8d8e] border-b border-[#142021]">
-              <th className="px-4 py-3 font-normal w-10">Sl.</th>
-              <th className="px-4 py-3 font-normal">Video Name</th>
-              <th className="px-4 py-3 font-normal">Duration</th>
-              <th className="px-4 py-3 font-normal">Type</th>
-              <th className="px-4 py-3 font-normal">Ver.</th>
-              <th className="px-4 py-3 font-normal">Status</th>
-              <th className="px-4 py-3 font-normal">Due</th>
-              <th className="px-4 py-3 font-normal">Amount</th>
-              <th className="px-4 py-3 font-normal">Actions</th>
+              <th className="px-3 py-3 font-normal w-8">#</th>
+              <th className="px-3 py-3 font-normal">Video</th>
+              <th className="px-3 py-3 font-normal">Duration</th>
+              <th className="px-3 py-3 font-normal">Type</th>
+              <th className="px-3 py-3 font-normal">Ver.</th>
+              <th className="px-3 py-3 font-normal">Editor Status</th>
+              <th className="px-3 py-3 font-normal">Client Status</th>
+              <th className="px-3 py-3 font-normal">Posted Date</th>
+              <th className="px-3 py-3 font-normal">Due</th>
+              <th className="px-3 py-3 font-normal">Amount</th>
+              <th className="px-3 py-3 font-normal">Actions</th>
             </tr>
           </thead>
           <tbody>
             {videos.length === 0 ? (
-              <tr><td colSpan={9} className="px-5 py-10 text-center text-[#7c8d8e]">No videos for this month. Click “Add Video” or “Duplicate Previous Month”.</td></tr>
+              <tr><td colSpan={11} className="px-5 py-10 text-center text-[#7c8d8e]">No videos for this month.</td></tr>
             ) : videos.map((v, idx) => (
-              <tr key={v.id} className="border-b border-[#101a1b] last:border-b-0 hover:bg-[#0f1819] transition-colors">
-                <td className="px-4 py-3 text-[#7c8d8e] font-mono-num">{idx + 1}</td>
-                <td className="px-4 py-3 text-[#e6f7f6] font-medium">{v.name}</td>
-                <td className="px-4 py-3 font-mono-num text-[#d6e7e6]">{v.duration}</td>
-                <td className="px-4 py-3 text-[#9bb0b1]">{v.type}</td>
-                <td className="px-4 py-3 text-[#9bb0b1] font-mono-num">{v.version}</td>
-                <td className="px-4 py-3">
-                  <Select value={v.status} onValueChange={(val) => onChangeStatus(v, val)}>
-                    <SelectTrigger className="h-7 px-2 py-0 bg-transparent border-0 hover:bg-[#0f1819] text-[#e6f7f6] w-auto min-w-[140px]">
-                      <StatusBadge status={v.status} withDot />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0d1516] border border-[#243334] text-[#e6f7f6]">
-                      {ADMIN_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
+              <tr key={v.id} className="border-b border-[#101a1b] last:border-b-0 hover:bg-[#0f1819]">
+                <td className="px-3 py-3 text-[#7c8d8e] font-mono-num">{idx + 1}</td>
+                <td className="px-3 py-3 text-[#e6f7f6] font-medium">{v.name}</td>
+                <td className="px-3 py-3 font-mono-num text-[#d6e7e6]">{v.duration}</td>
+                <td className="px-3 py-3 text-[#9bb0b1]">{v.type}</td>
+                <td className="px-3 py-3 text-[#9bb0b1] font-mono-num">{v.version}</td>
+                <td className="px-3 py-3">
+                  <Select value={v.editor_status} onValueChange={(val) => onEditorStatus(v, val)}>
+                    <SelectTrigger className="h-7 px-2 bg-transparent border-0 hover:bg-[#0f1819] text-[#e6f7f6] w-auto min-w-[150px]"><StatusBadge status={v.editor_status} withDot /></SelectTrigger>
+                    <SelectContent className="bg-[#0d1516] border border-[#243334] text-[#e6f7f6]">{EDITOR_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                   </Select>
                 </td>
-                <td className="px-4 py-3 text-[#9bb0b1] font-mono-num">{v.due_date || "—"}</td>
-                <td className="px-4 py-3 font-mono-num text-[#d6e7e6]">₹{Number(v.amount).toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    {v.status === 'Editing Completed' && (
-                      <button onClick={() => onSendToClient(v)} title="Send To Client" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/10 text-violet-300 border border-violet-500/30 hover:bg-violet-500/20 text-[11px] font-medium"><Send className="w-3 h-3" /> Send</button>
-                    )}
-                    {v.posted_locked && (
-                      <button onClick={() => onUnlockPosted(v)} title="Unlock Posted" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 text-[11px] font-medium"><Unlock className="w-3 h-3" /> Unlock</button>
-                    )}
-                    <button onClick={() => { setEditing(v); setFormOpen(true); }} className="w-7 h-7 rounded-md flex items-center justify-center text-[#7c8d8e] hover:text-[#2dd4bf] hover:bg-[#0e2624] transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => onDeleteVideo(v)} className="w-7 h-7 rounded-md flex items-center justify-center text-[#7c8d8e] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                <td className="px-3 py-3">
+                  <Select value={v.client_status || 'Pending Review'} onValueChange={(val) => onClientStatus(v, val)}>
+                    <SelectTrigger className="h-7 px-2 bg-transparent border-0 hover:bg-[#0f1819] text-[#e6f7f6] w-auto min-w-[140px]"><StatusBadge status={v.client_status} /></SelectTrigger>
+                    <SelectContent className="bg-[#0d1516] border border-[#243334] text-[#e6f7f6]">{CLIENT_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </td>
+                <td className="px-3 py-3">
+                  <input type="date" value={v.posted_date || ''} onChange={(e) => onPostedDate(v, e.target.value)} disabled={v.client_status !== 'Approved'}
+                    className="px-2 py-1 rounded-md bg-[#0a1112] border border-[#243334] text-[#d6e7e6] font-mono-num text-[12.5px] w-[140px] disabled:opacity-40 disabled:cursor-not-allowed" />
+                </td>
+                <td className="px-3 py-3 text-[#9bb0b1] font-mono-num">{v.due_date || "—"}</td>
+                <td className="px-3 py-3 font-mono-num text-[#d6e7e6]">₹{Number(v.amount).toLocaleString()}</td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-1">
+                    {v.client_locked && (<button onClick={() => onUnlock(v)} title="Unlock" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 text-[11px] font-medium"><Unlock className="w-3 h-3" /> Unlock</button>)}
+                    <button onClick={() => { setEditing(v); setFormOpen(true); }} title="Edit" className="w-7 h-7 rounded-md flex items-center justify-center text-[#7c8d8e] hover:text-[#2dd4bf] hover:bg-[#0e2624]"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => onDeleteVideo(v)} title="Delete" className="w-7 h-7 rounded-md flex items-center justify-center text-[#7c8d8e] hover:text-rose-400 hover:bg-rose-500/10"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </td>
               </tr>
@@ -307,7 +285,6 @@ export default function ClientDetail() {
         </table>
       </div>
 
-      {/* Corrections panel */}
       {corrections.length > 0 && (
         <section>
           <h2 className="text-lg font-bold mb-3">Corrections Requests</h2>

@@ -289,3 +289,32 @@ agent_communication:
       - Duplicate Previous Month and Delete Month buttons present
       
       The primary bug (admin login failure) has been completely resolved. The app is fully functional for admin users.
+
+
+
+# ============ v3 UPDATE (approval workflow split) ============
+agent_communication:
+  - agent: "main"
+    message: |
+      Major workflow update per user request: separated Editor Status and Client Status.
+      - EDITOR_STATUSES = ['Not Started','WIP','Sent To Client','Corrections Updated']
+      - CLIENT_STATUSES = ['Pending Review','Approved','Correction','Rejected']
+      - Client can see videos only when editor_status IN ('Sent To Client','Corrections Updated').
+      - Client can edit only client_status + posted_date; posted_date enabled ONLY when Approved; upon Approved+posted_date -> client_locked=true (admin-only unlock).
+      - Correction goes to Admin Dashboard "Correction Queue"; Rejected shown in "Rejected Videos".
+      - Removed public signup (redirects to /login). Admin adds a client and clicks the paper-plane icon to email a magic-link invite (sends via supabase.auth.signInWithOtp with shouldCreateUser:true) — no service role key needed. Admin can also click the key icon to send a reset-password email, and toggle Active/Inactive.
+      - Added /reset page for setting a new password after clicking the reset email.
+
+      SQL: /app/supabase_schema.sql (v3) is idempotent — adds editor_status/client_status/posted_date/client_locked/active columns, migrates from legacy 'status', drops legacy columns, updates RLS + trigger. USER MUST RUN IT.
+
+      Dashboard was resilient-refactored to use Promise.allSettled — if schema is missing, an amber banner is shown listing the failed queries instead of hanging on the spinner (previous bug).
+
+      Please verify (only after user confirms they've applied the v3 SQL):
+        1. Admin login still works, dashboard loads without amber banner
+        2. Admin can add/edit/delete client, invite client (magic-link) — a Supabase auth user is created for that email
+        3. Admin ClientDetail: Editor Status dropdown has 4 values; Client Status dropdown has 4 values; posted_date input is disabled unless client_status='Approved'
+        4. When admin sets editor_status='Sent To Client' — RLS lets the client see it; client can Approve/Correction/Reject
+        5. When client sets Approved + picks posted_date + Save & Lock — client_locked=true; client cannot re-edit; admin sees Unlock button
+        6. When client requests Correction, it appears in Admin Dashboard "Correction Queue"; when Rejected it appears in "Rejected Videos"
+        7. RLS: a client cannot see any other client's videos, invoices, payments, or activity (test by signing in as another client and confirming empty views)
+        8. /signup redirects to /login. /admin/login redirects to /login.
